@@ -1,0 +1,84 @@
+# Part-DB with MySQL and Caddy Docker Proxy
+# 
+# PRODUCTION SETUP:
+# - Using MySQL for better performance and reliability
+# - Auto-migration enabled for easy setup
+
+services:
+  partdb:
+    image: jbtronics/part-db1:latest
+    container_name: partdb-app
+    restart: unless-stopped
+    depends_on:
+      - partdb-db
+    environment:
+      - APP_ENV=prod
+      - DATABASE_URL=mysql://partdb:${DB_PASSWORD:-partdbpassword}@partdb-db:3306/partdb?serverVersion=8.0&charset=utf8mb4
+      - APP_SECRET=${APP_SECRET}
+      - INITIAL_ADMIN_PW=${INITIAL_ADMIN_PW:-admin123}
+      - TRUSTED_PROXIES=172.16.0.0/12
+      - DEFAULT_URI=https://${DOMAIN}/
+      # Database auto-migration (disabled to manually handle migration issue)
+      - DB_AUTOMIGRATE=false
+      # Email configuration
+      - MAILER_DSN=${MAILER_DSN:-null://null}
+      - EMAIL_SENDER_EMAIL=${EMAIL_SENDER_EMAIL:-noreply@${DOMAIN}}
+      - EMAIL_SENDER_NAME=${EMAIL_SENDER_NAME:-Part-DB System}
+      - ALLOW_EMAIL_PW_RESET=${ALLOW_EMAIL_PW_RESET:-1}
+      # Currency settings
+      - DEFAULT_CURRENCY=${DEFAULT_CURRENCY:-USD}
+    volumes:
+      # Persistent cache and uploads
+      - partdb_uploads:/var/www/html/uploads
+      - partdb_media:/var/www/html/public/media
+      # Optional: custom configuration
+      # - ./config/parameters.yaml:/var/www/html/config/parameters.yaml:ro
+    networks:
+      - caddy
+      - partdb-internal
+    labels:
+      caddy: ${DOMAIN}
+      caddy.reverse_proxy: "{{upstreams 80}}"
+
+  partdb-db:
+    image: mysql:8.0
+    container_name: partdb-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=partdb
+      - MYSQL_USER=partdb
+      - MYSQL_PASSWORD=${DB_PASSWORD:-partdbpassword}
+      - MYSQL_CHARSET=utf8mb4
+      - MYSQL_COLLATION=utf8mb4_unicode_ci
+    volumes:
+      - partdb_mysql_data:/var/lib/mysql
+    networks:
+      - partdb-internal
+    command: --default-authentication-plugin=mysql_native_password --skip-log-bin
+    labels:
+      caddy.enable: "false"
+
+  # Optional: Redis for caching (uncomment if needed for performance)
+  # partdb-redis:
+  #   image: redis:7-alpine
+  #   container_name: partdb-redis
+  #   restart: unless-stopped
+  #   networks:
+  #     - partdb-internal
+  #   labels:
+  #     caddy.enable: "false"
+
+volumes:
+  partdb_uploads:
+    driver: local
+  partdb_media:
+    driver: local
+  partdb_mysql_data:
+    driver: local
+
+networks:
+  caddy:
+    external: true
+  partdb-internal:
+    driver: bridge
